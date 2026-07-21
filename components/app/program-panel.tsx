@@ -1,17 +1,18 @@
 import { Icon } from '@/lib/icons'
+import type { TargetPose } from '@/types'
 
 interface ProgramPanelProps {
   activeWaypoint: number
-  setActiveWaypoint: (id: number) => void
+  selectWaypoint: (id: number) => void
   addWaypoint: () => void
   progress: number
   deleteWaypoint: () => void
-  waypoints: { id: number; name: string; time: string; pose: string }[]
+  waypoints: readonly TargetPose[]
 }
 
 export default function ProgramPanel({
   activeWaypoint,
-  setActiveWaypoint,
+  selectWaypoint,
   waypoints,
   addWaypoint,
   deleteWaypoint,
@@ -22,13 +23,13 @@ export default function ProgramPanel({
       <div className='program-head'>
         <div>
           <h2>
-            Pick &amp; Inspect <small>v0.3</small>
+            Target Poses <small>LOCAL · v1</small>
           </h2>
         </div>
         <div className='program-actions'>
           <button onClick={addWaypoint}>
             <Icon name='add' />
-            Add Waypoint
+            Save Pose
           </button>
           <button aria-label='Delete selected waypoint' onClick={deleteWaypoint} disabled={waypoints.length <= 1}>
             <Icon name='trash-delete' />
@@ -44,7 +45,8 @@ export default function ProgramPanel({
             <button
               key={point.id}
               className={activeWaypoint === point.id ? 'active' : ''}
-              onClick={() => setActiveWaypoint(point.id)}>
+              title={`${point.name}: ${point.joints.join(', ')}°`}
+              onClick={() => selectWaypoint(point.id)}>
               <span className='waypoint-marker text-sm'>
                 <i>{index + 1}</i>
               </span>
@@ -58,7 +60,7 @@ export default function ProgramPanel({
             <span>
               <Icon name='add' size={14} />
             </span>
-            <small>ADD</small>
+            <small>SAVE</small>
           </button>
         </div>
       </div>

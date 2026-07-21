@@ -10,8 +10,7 @@ interface ControlPanelProps {
   setActiveJoint: (index: number) => void
   setControlMode: (mode: 'Joint' | 'Cartesian') => void
   updateJoint: (index: number, value: number) => void
-  onActiveJointChange: (index: number) => void
-  onSpeedChange: (speed: number) => void
+  saveTargetPose: () => void
   tcp: { x: string; y: string; z: string }
 }
 
@@ -24,6 +23,7 @@ export const ControlPanel = ({
   speed,
   setSpeed,
   updateJoint,
+  saveTargetPose,
   tcp
 }: ControlPanelProps) => {
   return (
@@ -140,7 +140,7 @@ export const ControlPanel = ({
           <span>Fast</span>
         </div>
       </div>
-      <button className='apply-pose'>Set Target Pose</button>
+      <button className='apply-pose' onClick={saveTargetPose}>Save Target Pose</button>
       <div className='control-footer'>
         <div>
           <span>Payload</span>

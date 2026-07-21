@@ -8,10 +8,12 @@ import { StageToolbar } from '@/components/app/stage-toolbar'
 import { Toolbar } from '@/components/app/toolbar'
 import { Logo } from '@/components/logo'
 import { RobotScenePreview } from '@/components/models/preview'
+import { useProgramRunner } from '@/hooks/use-program-runner'
+import { useTargetPoses } from '@/hooks/use-target-poses'
 import { Icon } from '@/lib/icons'
 import { Joint } from '@/types'
 import dynamic from 'next/dynamic'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 const initialJoints: Joint[] = [
   { id: 'J1', name: 'Base', type: 'Rig axis', value: 0, home: 0, min: -170, max: 170 },
@@ -21,13 +23,6 @@ const initialJoints: Joint[] = [
   { id: 'J5', name: 'Wrist A', type: 'Rig axis', value: 0, home: 0, min: -90, max: 90 },
   { id: 'J6', name: 'Wrist B', type: 'Rig axis', value: 0, home: 0, min: -120, max: 120 },
   { id: 'J7', name: 'Tool', type: 'Rig axis', value: 0, home: 0, min: -180, max: 180 }
-]
-
-const initialWaypoints = [
-  { id: 1, name: 'Home', pose: '0, 0, 0, 0, 0, 0, 0', time: '00:00.0' },
-  { id: 2, name: 'Approach', pose: '18, -18, 20, 12, 36, 0, 0', time: '00:01.2' },
-  { id: 3, name: 'Pick', pose: '22, -8, 32, 12, 42, 8, 0', time: '00:02.5' },
-  { id: 4, name: 'Inspect', pose: '-28, 12, 20, -22, 15, 0, 12', time: '00:04.1' }
 ]
 
 const RobotScene = dynamic(() => import('../components/robot-scene'), {
@@ -40,23 +35,25 @@ export default function ArmConsole() {
   const [activeJoint, setActiveJoint] = useState(1)
   const [controlMode, setControlMode] = useState<'Joint' | 'Cartesian'>('Joint')
   const [mode, setMode] = useState<'Train' | 'Test'>('Train')
-  const [running, setRunning] = useState(false)
   const [estopped, setEstopped] = useState(false)
   const [connected, setConnected] = useState(false)
   const [view, setView] = useState('Orbit')
   const [speed, setSpeed] = useState(42)
-  const [progress, setProgress] = useState(0)
   const [activeWaypoint, setActiveWaypoint] = useState(1)
-  const [waypoints, setWaypoints] = useState(initialWaypoints)
   const [notice, setNotice] = useState('Sandbox is ready. Connect hardware when available.')
-
-  useEffect(() => {
-    if (!running || estopped) return
-    const timer = window.setInterval(() => {
-      setProgress((value) => (value >= 100 ? 0 : value + 0.25 + speed / 180))
-    }, 60)
-    return () => window.clearInterval(timer)
-  }, [running, estopped, speed])
+  const { poses: waypoints, addTargetPose, deleteTargetPose } = useTargetPoses()
+  const resolvedActiveWaypoint = waypoints.some((point) => point.id === activeWaypoint)
+    ? activeWaypoint
+    : (waypoints[0]?.id ?? 0)
+  const { running, paused, progress, toggleProgram, cancelProgram, setTimelinePosition } = useProgramRunner({
+    joints,
+    setJoints,
+    poses: waypoints,
+    activePoseId: resolvedActiveWaypoint,
+    setActivePoseId: setActiveWaypoint,
+    speed,
+    onComplete: () => setNotice('Program complete. Final target pose reached.')
+  })
 
   const tcp = useMemo(
     () => ({
@@ -68,14 +65,15 @@ export default function ArmConsole() {
   )
 
   function updateJoint(index: number, value: number) {
+    cancelProgram()
     setJoints((current) => current.map((joint, jointIndex) => (jointIndex === index ? { ...joint, value } : joint)))
     setActiveJoint(index)
   }
 
   function resetPose() {
+    cancelProgram(true)
     setJoints(initialJoints)
-    setProgress(0)
-    setRunning(false)
+    if (waypoints[0]) setActiveWaypoint(waypoints[0].id)
     setNotice('Robot returned to the Home pose.')
   }
 
@@ -84,36 +82,51 @@ export default function ArmConsole() {
       setNotice('Release the emergency stop before running a program.')
       return
     }
-    setRunning((value) => !value)
-    setNotice(running ? 'Program paused.' : 'Running Pick & Inspect in simulation.')
+    const action = toggleProgram()
+    if (action === 'paused') setNotice('Program paused at the current interpolated pose.')
+    if (action === 'resumed') setNotice('Program resumed toward the next target pose.')
+    if (action === 'started') setNotice('Running from the current pose through the remaining timeline.')
+    if (action === 'at-end') setNotice('The final target is selected. Choose an earlier pose to run the timeline.')
   }
 
   function toggleEstop() {
+    if (!estopped) cancelProgram()
     setEstopped((value) => !value)
-    setRunning(false)
     setNotice(
-      estopped ? 'Emergency stop released. Motion is still paused.' : 'Emergency stop engaged. All motion inhibited.'
+      estopped ? 'Emergency stop released. Motion remains stopped.' : 'Emergency stop engaged. All motion inhibited.'
     )
   }
 
   function addWaypoint() {
-    const id = waypoints.length ? Math.max(...waypoints.map((point) => point.id)) + 1 : 1
-    const newPoint = {
-      id,
-      name: `Waypoint ${String(id).padStart(2, '0')}`,
-      pose: joints.map((joint) => Math.round(joint.value)).join(', '),
-      time: `00:0${Math.min(id, 9)}.0`
-    }
-    setWaypoints((current) => [...current, newPoint])
-    setActiveWaypoint(id)
-    setNotice(`${newPoint.name} recorded from the current pose.`)
+    cancelProgram()
+    const newPose = addTargetPose(joints.map((joint) => joint.value))
+    setActiveWaypoint(newPose.id)
+    setNotice(`${newPose.name} saved in this browser.`)
   }
 
   function deleteWaypoint() {
     if (waypoints.length <= 1) return
-    setWaypoints((current) => current.filter((point) => point.id !== activeWaypoint))
-    setActiveWaypoint(waypoints[0].id === activeWaypoint ? waypoints[1].id : waypoints[0].id)
-    setNotice('Waypoint removed from the sequence.')
+    cancelProgram()
+    const selectedIndex = waypoints.findIndex((point) => point.id === resolvedActiveWaypoint)
+    const nextPose = waypoints[selectedIndex + 1] ?? waypoints[selectedIndex - 1]
+    if (!deleteTargetPose(resolvedActiveWaypoint)) return
+    if (nextPose) setActiveWaypoint(nextPose.id)
+    setNotice('Target pose removed from local storage.')
+  }
+
+  function selectWaypoint(id: number) {
+    const target = waypoints.find((point) => point.id === id)
+    if (!target) return
+    cancelProgram()
+    setActiveWaypoint(id)
+    setTimelinePosition(id)
+    setJoints((current) =>
+      current.map((joint, index) => ({
+        ...joint,
+        value: Math.min(joint.max, Math.max(joint.min, target.joints[index] ?? joint.value))
+      }))
+    )
+    setNotice(`${target.name} recalled from local storage.`)
   }
 
   return (
@@ -152,7 +165,14 @@ export default function ArmConsole() {
       </aside>
 
       <section className='workspace'>
-        <Toolbar mode={mode} running={running} resetPose={resetPose} toggleRun={toggleRun} setMode={setMode} />
+        <Toolbar
+          mode={mode}
+          running={running}
+          paused={paused}
+          resetPose={resetPose}
+          toggleRun={toggleRun}
+          setMode={setMode}
+        />
         <div className='stage-panel'>
           <StageToolbar view={view} setView={setView} />
           <RobotScene joints={joints} view={view} activeJoint={activeJoint} />
@@ -160,15 +180,17 @@ export default function ArmConsole() {
           <div className='scene-toast'>
             <i className={estopped ? 'danger' : running ? 'running' : ''} />
             <span>
-              <b>{estopped ? 'Motion inhibited' : running ? 'Program running' : 'Ready for motion'}</b>
+              <b>
+                {estopped ? 'Motion inhibited' : running ? 'Program running' : paused ? 'Program paused' : 'Ready for motion'}
+              </b>
               {notice}
             </span>
           </div>
         </div>
 
         <ProgramPanel
-          activeWaypoint={activeWaypoint}
-          setActiveWaypoint={setActiveWaypoint}
+          activeWaypoint={resolvedActiveWaypoint}
+          selectWaypoint={selectWaypoint}
           waypoints={waypoints}
           addWaypoint={addWaypoint}
           deleteWaypoint={deleteWaypoint}
@@ -178,16 +200,15 @@ export default function ArmConsole() {
 
       <ControlPanel
         controlMode={controlMode}
-        onActiveJointChange={setActiveJoint}
-        onSpeedChange={setSpeed}
         tcp={tcp}
         joints={joints}
         updateJoint={updateJoint}
-        activeJoint={0}
-        speed={0}
+        activeJoint={activeJoint}
+        speed={speed}
         setSpeed={setSpeed}
         setActiveJoint={setActiveJoint}
         setControlMode={setControlMode}
+        saveTargetPose={addWaypoint}
       />
     </main>
   )

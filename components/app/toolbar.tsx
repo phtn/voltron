@@ -3,12 +3,13 @@ import { Icon } from '@/lib/icons'
 interface ToolbarProps {
   mode: 'Train' | 'Test'
   running: boolean
+  paused: boolean
   resetPose: () => void
   toggleRun: () => void
   setMode: (mode: 'Train' | 'Test') => void
 }
 
-export function Toolbar({ mode, running, resetPose, toggleRun, setMode }: ToolbarProps) {
+export function Toolbar({ mode, running, paused, resetPose, toggleRun, setMode }: ToolbarProps) {
   return (
     <div className='workspace-toolbar px-2'>
       <div>
@@ -28,7 +29,7 @@ export function Toolbar({ mode, running, resetPose, toggleRun, setMode }: Toolba
         </button>
         <button className='run-button' onClick={toggleRun}>
           <Icon name={running ? 'pause' : 'play'} />
-          {running ? 'Pause' : 'Run '}
+          {running ? 'Pause' : paused ? 'Resume' : 'Run program'}
         </button>
       </div>
     </div>
