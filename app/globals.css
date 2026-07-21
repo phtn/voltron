@@ -163,6 +163,20 @@ input:focus-visible {
   border-color: #bdd7c3;
   background: #f3faf4;
 }
+.connection.connecting {
+  color: #946d2d;
+  border-color: #dec99e;
+  background: #fffaf0;
+  cursor: progress;
+}
+.connection.error {
+  color: #a53b32;
+  border-color: #e1b6b1;
+  background: #fff6f5;
+}
+.connection:disabled {
+  opacity: 0.75;
+}
 .icon-button,
 .avatar {
   width: 30px;
@@ -421,6 +435,10 @@ input:focus-visible {
   height: 8px;
   border-radius: 50%;
   background: #f6aca4;
+}
+.estop:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .is-estopped .estop {
   color: #fff;

@@ -9,11 +9,13 @@ import { Toolbar } from '@/components/app/toolbar'
 import { Logo } from '@/components/logo'
 import { RobotScenePreview } from '@/components/models/preview'
 import { useProgramRunner } from '@/hooks/use-program-runner'
+import { useRobotConnection } from '@/hooks/use-robot-connection'
 import { useTargetPoses } from '@/hooks/use-target-poses'
 import { Icon } from '@/lib/icons'
+import type { RobotTelemetry } from '@/lib/robot/protocol'
 import { Joint } from '@/types'
 import dynamic from 'next/dynamic'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 const initialJoints: Joint[] = [
   {
@@ -99,11 +101,35 @@ export default function ArmConsole() {
   const [controlMode, setControlMode] = useState<'Joint' | 'Cartesian'>('Joint')
   const [mode, setMode] = useState<'Train' | 'Test'>('Train')
   const [estopped, setEstopped] = useState(false)
-  const [connected, setConnected] = useState(false)
   const [view, setView] = useState('Orbit')
   const [speed, setSpeed] = useState(42)
   const [activeWaypoint, setActiveWaypoint] = useState(1)
-  const [notice, setNotice] = useState('Sandbox is ready. Connect hardware when available.')
+  const [notice, setNotice] = useState('Not connected.')
+  const applyHardwareTelemetry = useCallback((nextTelemetry: RobotTelemetry) => {
+    setJoints((current) => {
+      let changed = false
+      const next = current.map((joint, index) => {
+        const measuredValue = nextTelemetry.joints[index]
+        if (measuredValue === undefined) return joint
+        const value = Math.min(joint.max, Math.max(joint.min, measuredValue))
+        if (Math.abs(value - joint.value) < 0.0001) return joint
+        changed = true
+        return { ...joint, value }
+      })
+      return changed ? next : current
+    })
+  }, [])
+  const {
+    status: connectionStatus,
+    connected,
+    connecting,
+    device,
+    telemetry,
+    error: connectionError,
+    fault: connectionFault,
+    connect,
+    disconnect
+  } = useRobotConnection({ onTelemetry: applyHardwareTelemetry })
   const { poses: waypoints, addTargetPose, deleteTargetPose, swapTargetPoses } = useTargetPoses()
   const resolvedActiveWaypoint = waypoints.some((point) => point.id === activeWaypoint)
     ? activeWaypoint
@@ -116,7 +142,7 @@ export default function ArmConsole() {
       activePoseId: resolvedActiveWaypoint,
       setActivePoseId: setActiveWaypoint,
       speed,
-      onComplete: () => setNotice('Program complete. Final target pose reached.'),
+      onComplete: () => setNotice('Program complete.'),
       onPoseReached: (pose) => setNotice(`${pose.name} reached.`)
     })
 
@@ -130,12 +156,20 @@ export default function ArmConsole() {
   )
 
   function updateJoint(index: number, value: number) {
+    if (connected) {
+      setNotice('Manual hardware commands are disabled until the ESP32 command protocol is implemented.')
+      return
+    }
     cancelProgram()
     setJoints((current) => current.map((joint, jointIndex) => (jointIndex === index ? { ...joint, value } : joint)))
     setActiveJoint(index)
   }
 
   function resetPose() {
+    if (connected) {
+      setNotice('Hardware reset motion is disabled until command acknowledgements are implemented.')
+      return
+    }
     cancelProgram(true)
     setJoints(initialJoints)
     if (waypoints[0]) setActiveWaypoint(waypoints[0].id)
@@ -143,6 +177,10 @@ export default function ArmConsole() {
   }
 
   function toggleRun() {
+    if (connected) {
+      setNotice('Program execution is telemetry-only until the ESP32 motion command path is implemented.')
+      return
+    }
     if (estopped) {
       setNotice('Release the emergency stop before running a program.')
       return
@@ -155,11 +193,34 @@ export default function ArmConsole() {
   }
 
   function toggleEstop() {
+    if (connected) {
+      setNotice('Use the physical emergency stop. Browser E-stop commands are not enabled yet.')
+      return
+    }
     if (!estopped) cancelProgram()
     setEstopped((value) => !value)
     setNotice(
       estopped ? 'Emergency stop released. Motion remains stopped.' : 'Emergency stop engaged. All motion inhibited.'
     )
+  }
+
+  async function toggleHardwareConnection() {
+    if (connecting) return
+    if (connected) {
+      await disconnect()
+      setNotice('ESP32 disconnected. Returning to simulation-only mode.')
+      return
+    }
+
+    const result = await connect()
+    if (result.ok) {
+      cancelProgram()
+      setNotice(`${result.device.name} connected over USB serial · firmware ${result.device.firmware}.`)
+    } else if (result.cancelled) {
+      setNotice('ESP32 selection cancelled. Simulation remains active.')
+    } else {
+      setNotice(result.error)
+    }
   }
 
   function addWaypoint() {
@@ -182,6 +243,10 @@ export default function ArmConsole() {
   function selectWaypoint(id: number) {
     const target = waypoints.find((point) => point.id === id)
     if (!target) return
+    if (connected) {
+      setNotice('Target-pose commands are disabled until the ESP32 can validate and acknowledge them.')
+      return
+    }
     if (estopped) {
       setNotice('Release the emergency stop before moving to a target pose.')
       return
@@ -201,6 +266,18 @@ export default function ArmConsole() {
     setNotice('Timeline order updated and saved in this browser.')
   }
 
+  const connectionLabel = connected
+    ? 'ESP32 ONLINE'
+    : connectionStatus === 'requesting'
+      ? 'SELECT DEVICE…'
+      : connectionStatus === 'handshaking'
+        ? 'HANDSHAKING…'
+        : connectionStatus === 'unsupported'
+          ? 'SERIAL UNSUPPORTED'
+          : connectionStatus === 'error'
+            ? 'RETRY ESP32'
+            : 'CONNECT ESP32'
+
   return (
     <main className={`app-shell ${estopped ? 'is-estopped' : ''}`}>
       <header className='topbar'>
@@ -216,13 +293,16 @@ export default function ArmConsole() {
             <i /> SIMULATION
           </span>
           <button
-            className={`connection ${connected ? 'connected' : ''}`}
-            onClick={() => {
-              setConnected((value) => !value)
-              setNotice(connected ? 'Hardware disconnected.' : 'ESP-32 placeholder connected in demo mode.')
-            }}>
+            className={`connection ${connected ? 'connected' : connecting ? 'connecting' : connectionStatus === 'error' ? 'error' : ''}`}
+            title={
+              connectionError ??
+              (device ? `${device.name} · firmware ${device.firmware}` : 'Connect a classic ESP32 over USB')
+            }
+            disabled={connecting}
+            aria-busy={connecting}
+            onClick={() => void toggleHardwareConnection()}>
             <Icon name='chip' size={16} />
-            <span>{connected ? 'ESP-32 ONLINE' : 'NO HARDWARE'}</span>
+            <span>{connectionLabel}</span>
           </button>
 
           <button className='' aria-label='Profile'>
@@ -233,7 +313,13 @@ export default function ArmConsole() {
 
       <aside className='sidebar'>
         <SidebarNav />
-        <SidebarSubNav connected={connected} estopped={estopped} toggleEstop={toggleEstop} />
+        <SidebarSubNav
+          connected={connected}
+          telemetry={telemetry}
+          connectionFault={connectionFault}
+          estopped={estopped}
+          toggleEstop={toggleEstop}
+        />
       </aside>
 
       <section className='workspace'>
@@ -261,9 +347,9 @@ export default function ArmConsole() {
                       : 'Program running'
                     : paused
                       ? 'Motion paused'
-                      : 'Ready for motion'}
+                      : 'Ready'}
               </b>
-              {notice}
+              {connectionError ?? notice}
             </span>
           </div>
         </div>
