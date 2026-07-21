@@ -1,5 +1,21 @@
 @import 'tailwindcss';
 
+@font-face {
+  font-family: 'Okxs';
+  src: url('/fonts/okxs-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Okxs';
+  src: url('/fonts/okxs-medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --ink: #191b1d;
   --muted: #767a7d;
@@ -25,7 +41,8 @@ body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-okxs);
+  -webkit-font-smoothing: antialiased;
 }
 button,
 input {
@@ -112,8 +129,8 @@ input:focus-visible {
   align-items: center;
   gap: 6px;
   padding: 0 9px;
-  border: 1px solid #d7d8d5;
-  border-radius: 3px;
+  border: 0px solid #d7d8d5;
+  background: '#333333';
   color: #696d6c;
   font-size: 9px;
   font-weight: 800;
@@ -208,7 +225,7 @@ input:focus-visible {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 18px 12px 14px;
+  padding: 12px 12px 14px;
   overflow: auto;
 }
 .sidebar-heading {
@@ -223,7 +240,6 @@ input:focus-visible {
   letter-spacing: 0.18em;
 }
 .sidebar-heading h2 {
-  margin: 4px 0 0;
   font-size: 14px;
   letter-spacing: 0.04em;
 }
@@ -436,7 +452,7 @@ input:focus-visible {
 }
 .workspace-toolbar h1 {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   letter-spacing: -0.015em;
 }
 .mode-toggle,
@@ -916,9 +932,7 @@ input:focus-visible {
   border-radius: 50%;
   background: #f8f8f6;
   color: #777b78;
-  font:
-    normal 700 8px var(--font-geist-mono),
-    monospace;
+  font: normal var(--font-okxs);
 }
 .timeline button.active .waypoint-marker i {
   border-color: var(--orange);

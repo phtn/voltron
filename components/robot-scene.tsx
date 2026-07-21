@@ -396,6 +396,11 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
           rel='noreferrer'>
           KUMA R-9000S · Heinrich · CC BY-NC 4.0
         </a>
+        <div className='scale'>
+          <span>0</span>
+          <i />
+          <span>100 mm</span>
+        </div>
       </div>
       <div></div>
 

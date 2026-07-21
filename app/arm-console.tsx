@@ -1,5 +1,9 @@
 'use client'
 
+import { SidebarSubNav } from '@/components/app/sideba-subnav'
+import { SidebarNav } from '@/components/app/sidebar-nav'
+import { StageToolbar } from '@/components/app/stage-toolbar'
+import { Toolbar } from '@/components/app/toolbar'
 import { Logo } from '@/components/logo'
 import { RobotScenePreview } from '@/components/models/preview'
 import { Icon } from '@/lib/icons'
@@ -116,11 +120,10 @@ export default function ArmConsole() {
         <Logo />
         <div className='project-switcher'>
           <span>PROJECT</span>
-          <Icon name='chevron-right' />
-          <button>
-            Kuma Heavy <Icon name='chevron-right' />
-          </button>
+          <Icon name='chevron-right' className='size-3' />
+          <button>KUMA Heavy</button>
         </div>
+
         <div className='topbar-actions'>
           <span className='sim-badge'>
             <i /> SIMULATION
@@ -131,158 +134,27 @@ export default function ArmConsole() {
               setConnected((value) => !value)
               setNotice(connected ? 'Hardware disconnected.' : 'ESP-32 placeholder connected in demo mode.')
             }}>
-            <Icon name='activity' size={16} />
+            <Icon name='chip' size={16} />
             <span>{connected ? 'ESP-32 ONLINE' : 'NO HARDWARE'}</span>
           </button>
-          <button className='icon-button' aria-label='Help'>
-            <Icon name='information' />
-          </button>
-          <button className='avatar' aria-label='Profile'>
+
+          <button className='' aria-label='Profile'>
             <Icon name='re-up.ph' size={16} />
           </button>
         </div>
       </header>
 
       <aside className='sidebar'>
-        <nav className='primary-nav' aria-label='Primary navigation'>
-          <button title='Overview'>
-            <Icon name='home' />
-          </button>
-          <button className='active' title='Arm workspace'>
-            <Icon name='arm' />
-          </button>
-          <button title='Programs'>
-            <Icon name='layers' />
-          </button>
-          <button title='Digital twin'>
-            <Icon name='cube' />
-          </button>
-          <button title='Terminal'>
-            <Icon name='terminal-fill' />
-          </button>
-          <span className='nav-spacer' />
-          <button title='Settings'>
-            <Icon name='settings-fill' />
-          </button>
-        </nav>
-        <div className='sidebar-content'>
-          <div className='sidebar-heading'>
-            <div>
-              <span>ROBOT</span>
-              <h2>VOLTRON M1</h2>
-            </div>
-            <button>
-              <Icon name='more-h' />
-            </button>
-          </div>
-          <div className='robot-card'>
-            <div className='mini-arm'>
-              <Icon name='arm' size={32} />
-            </div>
-            <div>
-              <b>7 DOF Model</b>
-              <span>250 mm reach · 250 g</span>
-            </div>
-            <span className={`status-dot ${estopped ? 'danger' : ''}`} />
-          </div>
-          <div className='side-section'>
-            <span className='section-label'>WORKSPACE</span>
-            <button className='side-link active'>
-              <Icon name='terminal-fill' />
-              <span>Control room</span>
-              <kbd>1</kbd>
-            </button>
-            <button className='side-link'>
-              <Icon name='layers' />
-              <span>Programs</span>
-              <small>3</small>
-            </button>
-            <button className='side-link'>
-              <Icon name='cube' />
-              <span>Calibration</span>
-            </button>
-          </div>
-          <div className='side-section telemetry'>
-            <span className='section-label'>ROBOT HEALTH</span>
-            <div>
-              <span>Controller</span>
-              <b>{connected ? '24.1 V' : 'SIM'}</b>
-            </div>
-            <div>
-              <span>Joint temperature</span>
-              <b>31.4 °C</b>
-            </div>
-            <div>
-              <span>Rig channels</span>
-              <b className='good'>7 / 7</b>
-            </div>
-          </div>
-          <div className='side-footer'>
-            <div className='safety-copy'>
-              <i />
-              <span>
-                <b>{estopped ? 'MOTION LOCKED' : 'SYSTEM NOMINAL'}</b>
-                <small>{estopped ? 'Release E-stop to continue' : 'No faults detected'}</small>
-              </span>
-            </div>
-            <button className='estop' onClick={toggleEstop}>
-              <span>
-                <i />
-              </span>
-              {estopped ? 'RELEASE E-STOP' : 'EMERGENCY STOP'}
-            </button>
-          </div>
-        </div>
+        <SidebarNav />
+        <SidebarSubNav connected={connected} estopped={estopped} toggleEstop={toggleEstop} />
       </aside>
 
       <section className='workspace'>
-        <div className='workspace-toolbar px-2'>
-          <div>
-            <h1>Workspace</h1>
-          </div>
-          <div className='mode-toggle' aria-label='Operation mode'>
-            {(['Train', 'Test'] as const).map((item) => (
-              <button key={item} className={mode === item ? 'active' : ''} onClick={() => setMode(item)}>
-                {item}
-              </button>
-            ))}
-          </div>
-          <div className='workspace-actions'>
-            <button onClick={resetPose}>
-              <Icon name='rotate-x' />
-              Reset pose
-            </button>
-            <button className='run-button' onClick={toggleRun}>
-              <Icon name={running ? 'pause' : 'play'} />
-              {running ? 'Pause' : 'Run '}
-            </button>
-          </div>
-        </div>
-
+        <Toolbar mode={mode} running={running} resetPose={resetPose} toggleRun={toggleRun} setMode={setMode} />
         <div className='stage-panel'>
-          <div className='stage-toolbar'>
-            <div className='view-switcher'>
-              {['Orbit', 'Front', 'Top'].map((item) => (
-                <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>
-                  {item}
-                </button>
-              ))}
-            </div>
-            <div className='stage-tools'>
-              <button aria-label='Toggle grid'>
-                <Icon name='grid' />
-              </button>
-              <button aria-label='Fullscreen'>
-                <Icon name='fullscreen' />
-              </button>
-            </div>
-          </div>
+          <StageToolbar view={view} setView={setView} />
           <RobotScene joints={joints} view={view} activeJoint={activeJoint} />
-          <div className='scale'>
-            <span>0</span>
-            <i />
-            <span>100 mm</span>
-          </div>
+
           <div className='scene-toast'>
             <i className={estopped ? 'danger' : running ? 'running' : ''} />
             <span>
@@ -295,7 +167,6 @@ export default function ArmConsole() {
         <section className='program-panel'>
           <div className='program-head'>
             <div>
-              <span className='section-label'>ACTIVE PROGRAM</span>
               <h2>
                 Pick &amp; Inspect <small>v0.3</small>
               </h2>
@@ -320,7 +191,7 @@ export default function ArmConsole() {
                   key={point.id}
                   className={activeWaypoint === point.id ? 'active' : ''}
                   onClick={() => setActiveWaypoint(point.id)}>
-                  <span className='waypoint-marker'>
+                  <span className='waypoint-marker text-sm'>
                     <i>{index + 1}</i>
                   </span>
                   <span className='waypoint-copy'>
@@ -453,6 +324,7 @@ export default function ArmConsole() {
             <span>Fast</span>
           </div>
         </div>
+        <button className='apply-pose'>Set Target Pose</button>
         <div className='control-footer'>
           <div>
             <span>Payload</span>
