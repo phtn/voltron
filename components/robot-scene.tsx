@@ -63,11 +63,7 @@ function applyJointValues(rig: RigBinding[], joints: JointValue[]) {
   })
 }
 
-function deriveAuthoredAxis(
-  bone: THREE.Object3D,
-  animations: THREE.AnimationClip[],
-  fallbackAxis: THREE.Vector3
-) {
+function deriveAuthoredAxis(bone: THREE.Object3D, animations: THREE.AnimationClip[], fallbackAxis: THREE.Vector3) {
   const quaternionTrack = animations
     .flatMap((clip) => clip.tracks)
     .find((track) => track.name.includes(bone.name) && track.name.endsWith('.quaternion'))
@@ -391,21 +387,18 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
       className='scene-canvas three-scene'
       role='img'
       aria-label='Interactive 3D model of the KUMA seven-articulation robot rig'>
-      <div className='axis axis-x'>X</div>
-      <div className='axis axis-y'>Y</div>
-      <div className='axis axis-z'>Z</div>
-      <div className='scene-readout'>
+      <div className='scene-readout space-x-4'>
         <span>LIVE 3D</span>
-        <b>DRAG TO ORBIT</b>
-        <b>SCROLL TO ZOOM</b>
+        <a
+          className='whitespace-nowrap text-white'
+          href='https://sketchfab.com/3d-models/kuma-heavy-robot-r-9000s-8b77bdbe705f4e9697790fd404da49a9'
+          target='_blank'
+          rel='noreferrer'>
+          KUMA R-9000S · Heinrich · CC BY-NC 4.0
+        </a>
       </div>
-      <a
-        className='model-credit'
-        href='https://sketchfab.com/3d-models/kuma-heavy-robot-r-9000s-8b77bdbe705f4e9697790fd404da49a9'
-        target='_blank'
-        rel='noreferrer'>
-        KUMA R-9000S · Heinrich · CC BY-NC 4.0
-      </a>
+      <div></div>
+
       {status !== 'ready' ? (
         <div className={`model-loader ${status === 'error' ? 'error' : ''}`}>
           <span>{status === 'error' ? '3D model unavailable' : 'Loading digital twin'}</span>
