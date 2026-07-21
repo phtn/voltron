@@ -6,6 +6,7 @@ import {
   saveTargetPoses,
   subscribeToTargetPoses
 } from '@/lib/target-pose-storage'
+import { swapTargetPoseOrder } from '@/lib/target-pose-order'
 import { useCallback, useSyncExternalStore } from 'react'
 
 function timelineTime(index: number) {
@@ -42,5 +43,15 @@ export function useTargetPoses() {
     [poses]
   )
 
-  return { poses, addTargetPose, deleteTargetPose }
+  const swapTargetPoses = useCallback(
+    (sourceId: number, targetId: number) => {
+      const reordered = swapTargetPoseOrder(poses, sourceId, targetId)
+      if (!reordered) return null
+      saveTargetPoses(reordered)
+      return reordered
+    },
+    [poses]
+  )
+
+  return { poses, addTargetPose, deleteTargetPose, swapTargetPoses }
 }

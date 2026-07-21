@@ -104,20 +104,21 @@ export default function ArmConsole() {
   const [speed, setSpeed] = useState(42)
   const [activeWaypoint, setActiveWaypoint] = useState(1)
   const [notice, setNotice] = useState('Sandbox is ready. Connect hardware when available.')
-  const { poses: waypoints, addTargetPose, deleteTargetPose } = useTargetPoses()
+  const { poses: waypoints, addTargetPose, deleteTargetPose, swapTargetPoses } = useTargetPoses()
   const resolvedActiveWaypoint = waypoints.some((point) => point.id === activeWaypoint)
     ? activeWaypoint
     : (waypoints[0]?.id ?? 0)
-  const { running, paused, progress, motionKind, toggleProgram, moveToPose, cancelProgram } = useProgramRunner({
-    joints,
-    setJoints,
-    poses: waypoints,
-    activePoseId: resolvedActiveWaypoint,
-    setActivePoseId: setActiveWaypoint,
-    speed,
-    onComplete: () => setNotice('Program complete. Final target pose reached.'),
-    onPoseReached: (pose) => setNotice(`${pose.name} reached.`)
-  })
+  const { running, paused, progress, motionKind, toggleProgram, moveToPose, cancelProgram, setTimelineIndex } =
+    useProgramRunner({
+      joints,
+      setJoints,
+      poses: waypoints,
+      activePoseId: resolvedActiveWaypoint,
+      setActivePoseId: setActiveWaypoint,
+      speed,
+      onComplete: () => setNotice('Program complete. Final target pose reached.'),
+      onPoseReached: (pose) => setNotice(`${pose.name} reached.`)
+    })
 
   const tcp = useMemo(
     () => ({
@@ -187,6 +188,17 @@ export default function ArmConsole() {
     }
     if (!moveToPose(id)) return
     setNotice(`Moving to ${target.name} with constrained motion.`)
+  }
+
+  function swapWaypoints(sourceId: number, targetId: number) {
+    if (sourceId === targetId) return
+    cancelProgram()
+    const reordered = swapTargetPoses(sourceId, targetId)
+    if (!reordered) return
+
+    const activeIndex = reordered.findIndex((point) => point.id === resolvedActiveWaypoint)
+    if (activeIndex >= 0) setTimelineIndex(activeIndex, reordered.length)
+    setNotice('Timeline order updated and saved in this browser.')
   }
 
   return (
@@ -259,6 +271,7 @@ export default function ArmConsole() {
         <ProgramPanel
           activeWaypoint={resolvedActiveWaypoint}
           selectWaypoint={selectWaypoint}
+          swapWaypoints={swapWaypoints}
           waypoints={waypoints}
           addWaypoint={addWaypoint}
           deleteWaypoint={deleteWaypoint}

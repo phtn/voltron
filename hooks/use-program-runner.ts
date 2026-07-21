@@ -264,6 +264,13 @@ export function useProgramRunner({
     if (resetProgress) updateProgress(0)
   }, [updateProgress])
 
+  const setTimelineIndex = useCallback(
+    (index: number, poseCount: number) => {
+      updateProgress(poseCount > 1 ? (index / (poseCount - 1)) * 100 : 0)
+    },
+    [updateProgress]
+  )
+
   return {
     running,
     paused,
@@ -272,5 +279,6 @@ export function useProgramRunner({
     toggleProgram,
     moveToPose,
     cancelProgram,
+    setTimelineIndex
   }
 }

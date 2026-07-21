@@ -916,6 +916,27 @@ input:focus-visible {
   background: transparent;
   cursor: pointer;
   text-align: left;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  user-select: none;
+}
+.timeline button[draggable='true'] {
+  cursor: grab;
+}
+.timeline button[draggable='true']:active {
+  cursor: grabbing;
+}
+.timeline button.dragging {
+  opacity: 0.35;
+  transform: scale(0.96);
+}
+.timeline button.drop-target {
+  transform: translateY(-2px);
+}
+.timeline button.drop-target .waypoint-marker i {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 5px #f7dcd5;
 }
 .waypoint-marker {
   height: 24px;
@@ -933,6 +954,9 @@ input:focus-visible {
   background: #f8f8f6;
   color: #777b78;
   font: normal var(--font-okxs);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .timeline button.active .waypoint-marker i {
   border-color: var(--orange);
