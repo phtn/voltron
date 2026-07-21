@@ -16,13 +16,76 @@ import dynamic from 'next/dynamic'
 import { useMemo, useState } from 'react'
 
 const initialJoints: Joint[] = [
-  { id: 'J1', name: 'Base', type: 'Rig axis', value: 0, home: 0, min: -170, max: 170 },
-  { id: 'J2', name: 'Shoulder', type: 'Rig axis', value: 0, home: 0, min: -90, max: 90 },
-  { id: 'J3', name: 'Upper arm', type: 'Rig axis', value: 0, home: 0, min: -45, max: 45 },
-  { id: 'J4', name: 'Elbow', type: 'Rig axis', value: 0, home: 0, min: -90, max: 90 },
-  { id: 'J5', name: 'Wrist A', type: 'Rig axis', value: 0, home: 0, min: -90, max: 90 },
-  { id: 'J6', name: 'Wrist B', type: 'Rig axis', value: 0, home: 0, min: -120, max: 120 },
-  { id: 'J7', name: 'Tool', type: 'Rig axis', value: 0, home: 0, min: -180, max: 180 }
+  {
+    id: 'J1',
+    name: 'Base',
+    type: 'Rig axis',
+    value: 0,
+    home: 0,
+    min: -170,
+    max: 170,
+    motion: { maxVelocity: 75, maxAcceleration: 180, maxJerk: 900 }
+  },
+  {
+    id: 'J2',
+    name: 'Shoulder',
+    type: 'Rig axis',
+    value: 0,
+    home: 0,
+    min: -90,
+    max: 90,
+    motion: { maxVelocity: 60, maxAcceleration: 140, maxJerk: 700 }
+  },
+  {
+    id: 'J3',
+    name: 'Upper arm',
+    type: 'Rig axis',
+    value: 0,
+    home: 0,
+    min: -45,
+    max: 45,
+    motion: { maxVelocity: 75, maxAcceleration: 180, maxJerk: 900 }
+  },
+  {
+    id: 'J4',
+    name: 'Elbow',
+    type: 'Rig axis',
+    value: 0,
+    home: 0,
+    min: -90,
+    max: 90,
+    motion: { maxVelocity: 100, maxAcceleration: 260, maxJerk: 1400 }
+  },
+  {
+    id: 'J5',
+    name: 'Wrist A',
+    type: 'Rig axis',
+    value: 0,
+    home: 0,
+    min: -90,
+    max: 90,
+    motion: { maxVelocity: 130, maxAcceleration: 360, maxJerk: 2200 }
+  },
+  {
+    id: 'J6',
+    name: 'Wrist B',
+    type: 'Rig axis',
+    value: 0,
+    home: 0,
+    min: -120,
+    max: 120,
+    motion: { maxVelocity: 160, maxAcceleration: 480, maxJerk: 3000 }
+  },
+  {
+    id: 'J7',
+    name: 'Tool',
+    type: 'Rig axis',
+    value: 0,
+    home: 0,
+    min: -180,
+    max: 180,
+    motion: { maxVelocity: 200, maxAcceleration: 600, maxJerk: 4000 }
+  }
 ]
 
 const RobotScene = dynamic(() => import('../components/robot-scene'), {
@@ -45,14 +108,15 @@ export default function ArmConsole() {
   const resolvedActiveWaypoint = waypoints.some((point) => point.id === activeWaypoint)
     ? activeWaypoint
     : (waypoints[0]?.id ?? 0)
-  const { running, paused, progress, toggleProgram, cancelProgram, setTimelinePosition } = useProgramRunner({
+  const { running, paused, progress, motionKind, toggleProgram, moveToPose, cancelProgram } = useProgramRunner({
     joints,
     setJoints,
     poses: waypoints,
     activePoseId: resolvedActiveWaypoint,
     setActivePoseId: setActiveWaypoint,
     speed,
-    onComplete: () => setNotice('Program complete. Final target pose reached.')
+    onComplete: () => setNotice('Program complete. Final target pose reached.'),
+    onPoseReached: (pose) => setNotice(`${pose.name} reached.`)
   })
 
   const tcp = useMemo(
@@ -83,8 +147,8 @@ export default function ArmConsole() {
       return
     }
     const action = toggleProgram()
-    if (action === 'paused') setNotice('Program paused at the current interpolated pose.')
-    if (action === 'resumed') setNotice('Program resumed toward the next target pose.')
+    if (action === 'paused') setNotice('Motion paused at the current interpolated pose.')
+    if (action === 'resumed') setNotice('Motion resumed toward the target pose.')
     if (action === 'started') setNotice('Running from the current pose through the remaining timeline.')
     if (action === 'at-end') setNotice('The final target is selected. Choose an earlier pose to run the timeline.')
   }
@@ -117,16 +181,12 @@ export default function ArmConsole() {
   function selectWaypoint(id: number) {
     const target = waypoints.find((point) => point.id === id)
     if (!target) return
-    cancelProgram()
-    setActiveWaypoint(id)
-    setTimelinePosition(id)
-    setJoints((current) =>
-      current.map((joint, index) => ({
-        ...joint,
-        value: Math.min(joint.max, Math.max(joint.min, target.joints[index] ?? joint.value))
-      }))
-    )
-    setNotice(`${target.name} recalled from local storage.`)
+    if (estopped) {
+      setNotice('Release the emergency stop before moving to a target pose.')
+      return
+    }
+    if (!moveToPose(id)) return
+    setNotice(`Moving to ${target.name} with constrained motion.`)
   }
 
   return (
@@ -181,7 +241,15 @@ export default function ArmConsole() {
             <i className={estopped ? 'danger' : running ? 'running' : ''} />
             <span>
               <b>
-                {estopped ? 'Motion inhibited' : running ? 'Program running' : paused ? 'Program paused' : 'Ready for motion'}
+                {estopped
+                  ? 'Motion inhibited'
+                  : running
+                    ? motionKind === 'pose'
+                      ? 'Moving to target'
+                      : 'Program running'
+                    : paused
+                      ? 'Motion paused'
+                      : 'Ready for motion'}
               </b>
               {notice}
             </span>
