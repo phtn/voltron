@@ -17,6 +17,7 @@ import { getRobotProgramPreset, materializeRobotProgramPreset } from '@/lib/robo
 import type { RobotTelemetry } from '@/lib/robot/protocol'
 import type { Joint, JointStep, SceneBackground } from '@/types'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 const initialJoints: Joint[] = [
@@ -425,9 +426,9 @@ export default function ArmConsole() {
             <span>{connectionLabel}</span>
           </button>
 
-          <button className='' aria-label='Profile'>
-            <Icon name='re-up.ph' size={16} />
-          </button>
+          <Link href='https://github.com/phtn/voltron' className='' aria-label='repo'>
+            <Icon name='github' size={16} />
+          </Link>
         </div>
       </header>
 
