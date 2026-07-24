@@ -19,6 +19,7 @@ type ProgramSegment = {
 }
 
 const MAX_FRAME_DELTA_SECONDS = 0.05
+const SIMULATION_FRAME_INTERVAL_MS = 1000 / 30
 
 export type ProgramToggleResult = 'started' | 'paused' | 'resumed' | 'at-end'
 
@@ -77,6 +78,7 @@ export function useProgramRunner({
   const [motionKind, setMotionKind] = useState<MotionKind | null>(null)
   const segmentRef = useRef<ProgramSegment | null>(null)
   const jointsRef = useRef(joints)
+  const posesRef = useRef(poses)
   const speedRef = useRef(speed)
   const progressRef = useRef(0)
   const onCompleteRef = useRef(onComplete)
@@ -91,6 +93,10 @@ export function useProgramRunner({
   useEffect(() => {
     jointsRef.current = joints
   }, [joints])
+
+  useEffect(() => {
+    posesRef.current = poses
+  }, [poses])
 
   useEffect(() => {
     speedRef.current = speed
@@ -109,6 +115,7 @@ export function useProgramRunner({
 
     let frameId = 0
     let previousTime: number | null = null
+    let previousSimulationFrame = -Infinity
 
     const tick = (time: number) => {
       const segment = segmentRef.current
@@ -127,14 +134,24 @@ export function useProgramRunner({
         segment.trajectory.durationSeconds,
         segment.elapsedSeconds + elapsedSeconds
       )
+      const isComplete = segment.elapsedSeconds >= segment.trajectory.durationSeconds
+      if (!isComplete && time - previousSimulationFrame < SIMULATION_FRAME_INTERVAL_MS) {
+        frameId = window.requestAnimationFrame(tick)
+        return
+      }
+      previousSimulationFrame = time
       const sample = sampleSynchronizedTrajectory(segment.trajectory, segment.elapsedSeconds)
 
-      setJoints((current) =>
-        current.map((joint, index) => ({
-          ...joint,
-          value: sample.positions[index] ?? joint.value
-        }))
-      )
+      setJoints((current) => {
+        let changed = false
+        const next = current.map((joint, index) => {
+          const value = sample.positions[index] ?? joint.value
+          if (Math.abs(value - joint.value) < 0.0001) return joint
+          changed = true
+          return { ...joint, value }
+        })
+        return changed ? next : current
+      })
 
       const timelineSegments = poses.length - 1
       const timelinePosition =
@@ -208,44 +225,49 @@ export function useProgramRunner({
       return 'resumed'
     }
 
-    const activeIndex = poses.findIndex((pose) => pose.id === activePoseId)
+    const currentPoses = posesRef.current
+    const currentJoints = jointsRef.current
+    const currentSpeed = speedRef.current
+    const activeIndex = currentPoses.findIndex((pose) => pose.id === activePoseId)
     const targetIndex = activeIndex + 1
-    const nextPose = poses[targetIndex]
+    const nextPose = currentPoses[targetIndex]
     if (activeIndex < 0 || !nextPose) return 'at-end'
 
     segmentRef.current = createProgramSegment(
-      joints.map((joint) => joint.value),
+      currentJoints.map((joint) => joint.value),
       nextPose,
       targetIndex,
       activeIndex,
       'program',
-      joints,
-      speed
+      currentJoints,
+      currentSpeed
     )
     setRunning(true)
     setPaused(false)
     setMotionKind('program')
     return 'started'
-  }, [activePoseId, joints, poses, running, speed])
+  }, [activePoseId, running])
 
   const moveToPose = useCallback(
     (poseId: number) => {
-      const targetIndex = poses.findIndex((pose) => pose.id === poseId)
-      const targetPose = poses[targetIndex]
+      const currentPoses = posesRef.current
+      const currentJoints = jointsRef.current
+      const targetIndex = currentPoses.findIndex((pose) => pose.id === poseId)
+      const targetPose = currentPoses[targetIndex]
       if (targetIndex < 0 || !targetPose) return false
 
-      const timelineSegments = poses.length - 1
+      const timelineSegments = currentPoses.length - 1
       const timelineStartPosition =
         timelineSegments > 0 ? (progressRef.current / 100) * timelineSegments : targetIndex
 
       segmentRef.current = createProgramSegment(
-        joints.map((joint) => joint.value),
+        currentJoints.map((joint) => joint.value),
         targetPose,
         targetIndex,
         timelineStartPosition,
         'pose',
-        joints,
-        speed
+        currentJoints,
+        speedRef.current
       )
       setActivePoseId(targetPose.id)
       setRunning(true)
@@ -253,7 +275,7 @@ export function useProgramRunner({
       setMotionKind('pose')
       return true
     },
-    [joints, poses, setActivePoseId, speed]
+    [setActivePoseId]
   )
 
   const cancelProgram = useCallback((resetProgress = false) => {

@@ -4,6 +4,7 @@ const STORAGE_KEY = 'voltron:target-poses:v1'
 const STORAGE_EVENT = 'voltron:target-poses-changed'
 const SCHEMA_VERSION = 1
 const JOINT_COUNT = 7
+const TARGET_POSE_PROCESSES = new Set(['travel', 'plot', 'weld'])
 
 type TargetPosePayload = {
   schemaVersion: typeof SCHEMA_VERSION
@@ -32,7 +33,8 @@ function isTargetPose(value: unknown): value is TargetPose {
     Array.isArray(pose.joints) &&
     pose.joints.length === JOINT_COUNT &&
     pose.joints.every((joint) => typeof joint === 'number' && Number.isFinite(joint)) &&
-    typeof pose.time === 'string'
+    typeof pose.time === 'string' &&
+    (pose.process === undefined || (typeof pose.process === 'string' && TARGET_POSE_PROCESSES.has(pose.process)))
   )
 }
 

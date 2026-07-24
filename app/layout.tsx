@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Voltron Control Room",
-  description: "Train, test, and operate the Voltron six-axis robotic arm.",
+  description: "Train, test, and simulate the Voltron seven-axis robotic arm.",
 };
 
 export default function RootLayout({

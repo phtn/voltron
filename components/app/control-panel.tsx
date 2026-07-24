@@ -1,11 +1,13 @@
-import { Icon } from '@/lib/icons'
-import { Joint } from '@/types'
+import { JOINT_STEPS } from '@/lib/joint-step'
+import type { Joint, JointStep } from '@/types'
 
 interface ControlPanelProps {
   controlMode: 'Joint' | 'Cartesian'
   activeJoint: number
   joints: Joint[]
+  jointStep: JointStep
   speed: number
+  setJointStep: (step: JointStep) => void
   setSpeed: (speed: number) => void
   setActiveJoint: (index: number) => void
   setControlMode: (mode: 'Joint' | 'Cartesian') => void
@@ -20,7 +22,9 @@ export const ControlPanel = ({
   activeJoint,
   setActiveJoint,
   joints,
+  jointStep,
   speed,
+  setJointStep,
   setSpeed,
   updateJoint,
   saveTargetPose,
@@ -32,9 +36,22 @@ export const ControlPanel = ({
         <div>
           <h2>Pose Controller</h2>
         </div>
-        <button>
-          <Icon name='more-h' />
-        </button>
+        {controlMode === 'Joint' ? (
+          <div className='joint-step-selector' role='group' aria-label='Joint angle increment'>
+            <span>STEP</span>
+            {JOINT_STEPS.map((step) => (
+              <button
+                key={step}
+                type='button'
+                className={jointStep === step ? 'active' : ''}
+                aria-pressed={jointStep === step}
+                title={`${step} degree joint step`}
+                onClick={() => setJointStep(step)}>
+                {step}°
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div className='control-tabs'>
         {(['Joint', 'Cartesian'] as const).map((tab) => (
@@ -62,9 +79,11 @@ export const ControlPanel = ({
                   <label>
                     <input
                       type='number'
+                      aria-label={`${joint.name} angle`}
                       min={joint.min}
                       max={joint.max}
-                      value={Math.round(joint.value)}
+                      step={jointStep}
+                      value={Number(joint.value.toFixed(2))}
                       onChange={(event) => updateJoint(index, Number(event.target.value))}
                     />
                     <em>°</em>
@@ -78,8 +97,10 @@ export const ControlPanel = ({
                   className='joint-slider'
                   style={{ '--value': `${position}%` } as React.CSSProperties}
                   type='range'
+                  aria-label={`${joint.name} angle`}
                   min={joint.min}
                   max={joint.max}
+                  step={jointStep}
                   value={joint.value}
                   onChange={(event) => updateJoint(index, Number(event.target.value))}
                 />

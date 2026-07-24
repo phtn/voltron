@@ -1,5 +1,6 @@
 'use client'
 
+import type { SceneBackground } from '@/types'
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -8,6 +9,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 type JointValue = { value: number; home?: number }
 
 type RobotSceneProps = {
+  background: SceneBackground
+  laserEnabled: boolean
   joints: JointValue[]
   view: string
   activeJoint: number
@@ -20,12 +23,12 @@ type RigBinding = {
   axis: THREE.Vector3
 }
 
-type PhysicsState = {
-  world: { step: () => void; free: () => void }
-  toolBody: { setNextKinematicTranslation: (position: { x: number; y: number; z: number }) => void }
-}
-
-const MODEL_URL = '/api/robot-model'
+const MODEL_URL = '/api/robot-model?v=6a583198fedf'
+// The terminal node is an authored bone-tail marker beyond the visible tool.
+// Emit from the final tool bone and use its child only to derive forward.
+const TOOL_EMITTER_NODE = 'ArmShortest_09'
+const TOOL_DIRECTION_NODE = 'ArmShortest_end_010'
+const LASER_MAX_DISTANCE = 7.5
 // These are the seven bones with non-static quaternion tracks in the supplied
 // GLB. The intervening Core.001_03, Motor_04, and ArmLong_2_06 nodes are spacer
 // bones, not independent controls. Fallback axes were extracted from the same
@@ -45,6 +48,31 @@ const VIEW_POSITIONS: Record<string, THREE.Vector3> = {
   Front: new THREE.Vector3(0, 3.4, 9.6),
   Top: new THREE.Vector3(0.01, 10.5, 0.01)
 }
+
+const SCENE_THEMES = {
+  dark: {
+    background: 0x222524,
+    exposure: 1.15,
+    fillIntensity: 35,
+    floor: 0x242725,
+    fogDensity: 0.055,
+    gridOpacity: 0.38,
+    hemisphereGround: 0x1c201d,
+    hemisphereIntensity: 2.1,
+    hemisphereSky: 0xe9eee7
+  },
+  light: {
+    background: 0xe9ebe8,
+    exposure: 1.05,
+    fillIntensity: 24,
+    floor: 0xdde0db,
+    fogDensity: 0.045,
+    gridOpacity: 0.3,
+    hemisphereGround: 0x929a93,
+    hemisphereIntensity: 2,
+    hemisphereSky: 0xffffff
+  }
+} as const satisfies Record<SceneBackground, Record<string, number>>
 
 function disposeMaterial(material: THREE.Material) {
   for (const value of Object.values(material)) {
@@ -92,15 +120,17 @@ function deriveAuthoredAxis(bone: THREE.Object3D, animations: THREE.AnimationCli
   return bestAxis
 }
 
-export default function RobotScene({ joints, view, activeJoint }: RobotSceneProps) {
+export default function RobotScene({ background, laserEnabled, joints, view, activeJoint }: RobotSceneProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const rigRef = useRef<RigBinding[]>([])
   const jointsRef = useRef(joints)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const controlsRef = useRef<OrbitControls | null>(null)
-  const toolRef = useRef<THREE.Object3D | null>(null)
   const activeJointRef = useRef(activeJoint)
-  const physicsRef = useRef<PhysicsState | null>(null)
+  const backgroundRef = useRef(background)
+  const laserEnabledRef = useRef(laserEnabled)
+  const applyBackgroundRef = useRef<((background: SceneBackground) => void) | null>(null)
+  const renderRef = useRef<(() => void) | null>(null)
   const [loadProgress, setLoadProgress] = useState(0)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
@@ -109,11 +139,10 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
     if (!mount) return
 
     let disposed = false
-    let modelRoot: THREE.Object3D | null = null
-    let animationFrame = 0
+    const initialTheme = SCENE_THEMES[backgroundRef.current]
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x222524)
-    scene.fog = new THREE.FogExp2(0x222524, 0.055)
+    scene.background = new THREE.Color(initialTheme.background)
+    scene.fog = new THREE.FogExp2(initialTheme.background, initialTheme.fogDensity)
 
     const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 100)
     camera.position.copy(VIEW_POSITIONS.Orbit)
@@ -127,19 +156,18 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
       return
     }
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75))
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFShadowMap
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.15
+    renderer.toneMappingExposure = initialTheme.exposure
     renderer.domElement.className = 'three-canvas'
     renderer.domElement.setAttribute('aria-hidden', 'true')
     mount.prepend(renderer.domElement)
 
     const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
-    controls.dampingFactor = 0.07
+    controls.enableDamping = false
     controls.enablePan = false
     controls.minDistance = 5.2
     controls.maxDistance = 14
@@ -149,13 +177,17 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
     controls.update()
     controlsRef.current = controls
 
-    const hemisphere = new THREE.HemisphereLight(0xe9eee7, 0x1c201d, 2.1)
+    const hemisphere = new THREE.HemisphereLight(
+      initialTheme.hemisphereSky,
+      initialTheme.hemisphereGround,
+      initialTheme.hemisphereIntensity
+    )
     scene.add(hemisphere)
 
     const keyLight = new THREE.DirectionalLight(0xffffff, 4.2)
     keyLight.position.set(5, 8, 6)
     keyLight.castShadow = true
-    keyLight.shadow.mapSize.set(1536, 1536)
+    keyLight.shadow.mapSize.set(1024, 1024)
     keyLight.shadow.camera.left = -5
     keyLight.shadow.camera.right = 5
     keyLight.shadow.camera.top = 7
@@ -167,12 +199,12 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
     rimLight.position.set(-5, 4, -4)
     scene.add(rimLight)
 
-    const fillLight = new THREE.PointLight(0x9fb7c0, 35, 12)
+    const fillLight = new THREE.PointLight(0x9fb7c0, initialTheme.fillIntensity, 12)
     fillLight.position.set(2, 2.5, 4)
     scene.add(fillLight)
 
     const floorMaterial = new THREE.MeshStandardMaterial({
-      color: 0x242725,
+      color: initialTheme.floor,
       metalness: 0.15,
       roughness: 0.86
     })
@@ -182,18 +214,66 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
     floor.receiveShadow = true
     scene.add(floor)
 
+    const laserVisual = new THREE.Group()
+    laserVisual.visible = false
+    const laserBeam = new THREE.Group()
+    const laserCore = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.008, 0.008, 1, 8),
+      new THREE.MeshBasicMaterial({
+        blending: THREE.AdditiveBlending,
+        color: 0xff241a,
+        depthTest: false,
+        depthWrite: false,
+        opacity: 0.95,
+        toneMapped: false,
+        transparent: true
+      })
+    )
+    laserCore.position.y = 0.5
+    laserCore.renderOrder = 8
+    laserBeam.add(laserCore)
+    const laserGlow = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.026, 0.026, 1, 8),
+      new THREE.MeshBasicMaterial({
+        blending: THREE.AdditiveBlending,
+        color: 0xff0000,
+        depthTest: false,
+        depthWrite: false,
+        opacity: 0.16,
+        toneMapped: false,
+        transparent: true
+      })
+    )
+    laserGlow.position.y = 0.5
+    laserGlow.renderOrder = 7
+    laserBeam.add(laserGlow)
+    laserVisual.add(laserBeam)
+    const laserDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.042, 12, 8),
+      new THREE.MeshBasicMaterial({
+        blending: THREE.AdditiveBlending,
+        color: 0xff2018,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false
+      })
+    )
+    laserDot.renderOrder = 9
+    laserVisual.add(laserDot)
+    scene.add(laserVisual)
+
     const grid = new THREE.GridHelper(18, 36, 0x646a66, 0x393d3a)
     grid.position.y = 0.004
     const gridMaterials = Array.isArray(grid.material) ? grid.material : [grid.material]
     for (const material of gridMaterials) {
       material.transparent = true
-      material.opacity = 0.38
+      material.opacity = initialTheme.gridOpacity
     }
     scene.add(grid)
 
     const target = new THREE.Group()
     const targetMaterial = new THREE.MeshBasicMaterial({ color: 0xef5a34, transparent: true, opacity: 0.75 })
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.012, 8, 64), targetMaterial)
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.012, 8, 32), targetMaterial)
     ring.rotation.x = Math.PI / 2
     target.add(ring)
     const crossGeometry = new THREE.BufferGeometry().setFromPoints([
@@ -218,7 +298,7 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
       transparent: true,
       opacity: 0.9
     })
-    const jointRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.014, 8, 64), jointMarkerMaterial)
+    const jointRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.014, 8, 32), jointMarkerMaterial)
     jointRing.renderOrder = 10
     jointMarker.add(jointRing)
     const jointAxis = new THREE.LineSegments(
@@ -231,16 +311,17 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
     scene.add(jointMarker)
 
     const loader = new GLTFLoader()
+    let toolEmitter: THREE.Object3D | null = null
+    let toolDirectionMarker: THREE.Object3D | null = null
     loader.load(
       MODEL_URL,
       (gltf) => {
         if (disposed) return
-        modelRoot = gltf.scene
+        const modelRoot = gltf.scene
         modelRoot.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             child.castShadow = true
             child.receiveShadow = true
-            child.frustumCulled = false
           }
         })
         modelRoot.updateMatrixWorld(true)
@@ -259,7 +340,7 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
         modelRoot.updateMatrixWorld(true)
 
         rigRef.current = JOINT_SPECS.reduce<RigBinding[]>((bindings, spec, jointIndex) => {
-          const bone = modelRoot?.getObjectByName(spec.name)
+          const bone = modelRoot.getObjectByName(spec.name)
           if (!bone) return bindings
           bindings.push({
             jointIndex,
@@ -269,10 +350,12 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
           })
           return bindings
         }, [])
+        toolEmitter = modelRoot.getObjectByName(TOOL_EMITTER_NODE) ?? null
+        toolDirectionMarker = modelRoot.getObjectByName(TOOL_DIRECTION_NODE) ?? null
         applyJointValues(rigRef.current, jointsRef.current)
-        toolRef.current = modelRoot.getObjectByName('ArmShortest_end_010') ?? null
         setLoadProgress(100)
         setStatus('ready')
+        renderRef.current?.()
       },
       (event) => {
         if (!disposed && event.total > 0) setLoadProgress(Math.round((event.loaded / event.total) * 100))
@@ -282,29 +365,20 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
       }
     )
 
-    void import('@dimforge/rapier3d')
-      .then((RAPIER) => {
-        if (disposed) return
-        const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 })
-        const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed())
-        world.createCollider(RAPIER.ColliderDesc.cuboid(9, 0.05, 9), ground)
-        const toolBody = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased())
-        world.createCollider(RAPIER.ColliderDesc.ball(0.08), toolBody)
-        physicsRef.current = { world, toolBody }
-      })
-      .catch(() => {
-        // The 3D viewport remains usable if WebAssembly is unavailable.
-      })
-
-    const toolPosition = new THREE.Vector3()
+    const LASER_EMITTER_OFFSET = new THREE.Vector3(4.5, 2.75, -0.1)
     const jointPosition = new THREE.Vector3()
     const jointWorldRotation = new THREE.Quaternion()
     const jointWorldAxis = new THREE.Vector3()
     const markerRotation = new THREE.Quaternion()
     const markerNormal = new THREE.Vector3(0, 0, 1)
-    const render = () => {
-      controls.update()
-      target.rotation.y += 0.003
+    const laserOrigin = new THREE.Vector3()
+    const laserDirection = new THREE.Vector3()
+    const laserDirectionTarget = new THREE.Vector3()
+    const laserUp = new THREE.Vector3(0, 1, 0)
+    const laserRaycaster = new THREE.Raycaster()
+    const laserIntersections: THREE.Intersection[] = []
+    const renderScene = () => {
+      if (disposed) return
       const selectedJoint = rigRef.current.find((binding) => binding.jointIndex === activeJointRef.current)
       if (selectedJoint) {
         selectedJoint.bone.getWorldPosition(jointPosition)
@@ -317,14 +391,50 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
       } else {
         jointMarker.visible = false
       }
-      if (toolRef.current && physicsRef.current) {
-        toolRef.current.getWorldPosition(toolPosition)
-        physicsRef.current.toolBody.setNextKinematicTranslation(toolPosition)
-        physicsRef.current.world.step()
+
+      laserVisual.visible = laserEnabledRef.current && toolEmitter !== null && toolDirectionMarker !== null
+      if (laserVisual.visible && toolEmitter && toolDirectionMarker) {
+        toolEmitter.getWorldPosition(laserOrigin)
+        toolDirectionMarker.getWorldPosition(laserDirectionTarget)
+        laserDirection.subVectors(laserDirectionTarget, laserOrigin).normalize()
+
+        laserOrigin.copy(LASER_EMITTER_OFFSET)
+        toolEmitter.localToWorld(laserOrigin)
+
+        laserRaycaster.set(laserOrigin, laserDirection)
+        laserRaycaster.far = LASER_MAX_DISTANCE
+        laserIntersections.length = 0
+        laserRaycaster.intersectObject(floor, false, laserIntersections)
+        const floorHit = laserIntersections[0]
+        const beamLength = floorHit?.distance ?? LASER_MAX_DISTANCE
+
+        laserBeam.position.copy(laserOrigin)
+        laserBeam.quaternion.setFromUnitVectors(laserUp, laserDirection)
+        laserBeam.scale.set(1, beamLength, 1)
+        laserDot.visible = Boolean(floorHit)
+        if (floorHit) laserDot.position.copy(floorHit.point)
       }
       renderer.render(scene, camera)
-      animationFrame = window.requestAnimationFrame(render)
     }
+
+    applyBackgroundRef.current = (nextBackground) => {
+      const theme = SCENE_THEMES[nextBackground]
+      if (scene.background instanceof THREE.Color) scene.background.setHex(theme.background)
+      if (scene.fog instanceof THREE.FogExp2) {
+        scene.fog.color.setHex(theme.background)
+        scene.fog.density = theme.fogDensity
+      }
+      floorMaterial.color.setHex(theme.floor)
+      hemisphere.color.setHex(theme.hemisphereSky)
+      hemisphere.groundColor.setHex(theme.hemisphereGround)
+      hemisphere.intensity = theme.hemisphereIntensity
+      fillLight.intensity = theme.fillIntensity
+      renderer.toneMappingExposure = theme.exposure
+      for (const material of gridMaterials) material.opacity = theme.gridOpacity
+      renderScene()
+    }
+    renderRef.current = renderScene
+    controls.addEventListener('change', renderScene)
 
     const resize = () => {
       const { clientWidth, clientHeight } = mount
@@ -332,23 +442,22 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
       renderer.setSize(clientWidth, clientHeight, false)
       camera.aspect = clientWidth / clientHeight
       camera.updateProjectionMatrix()
+      renderScene()
     }
     const resizeObserver = new ResizeObserver(resize)
     resizeObserver.observe(mount)
     resize()
-    render()
 
     return () => {
       disposed = true
       resizeObserver.disconnect()
-      window.cancelAnimationFrame(animationFrame)
+      controls.removeEventListener('change', renderScene)
       controls.dispose()
-      physicsRef.current?.world.free()
-      physicsRef.current = null
       rigRef.current = []
       cameraRef.current = null
       controlsRef.current = null
-      toolRef.current = null
+      applyBackgroundRef.current = null
+      renderRef.current = null
       scene.traverse((child) => {
         if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
           child.geometry.dispose()
@@ -357,17 +466,30 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
         }
       })
       renderer.dispose()
+      renderer.forceContextLoss()
       renderer.domElement.remove()
     }
   }, [])
 
   useEffect(() => {
+    backgroundRef.current = background
+    applyBackgroundRef.current?.(background)
+  }, [background])
+
+  useEffect(() => {
+    laserEnabledRef.current = laserEnabled
+    renderRef.current?.()
+  }, [laserEnabled])
+
+  useEffect(() => {
     jointsRef.current = joints
     applyJointValues(rigRef.current, joints)
+    renderRef.current?.()
   }, [joints])
 
   useEffect(() => {
     activeJointRef.current = activeJoint
+    renderRef.current?.()
   }, [activeJoint])
 
   useEffect(() => {
@@ -379,18 +501,19 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
     camera.position.copy(position)
     controls.target.set(0, 2.15, 0)
     controls.update()
+    renderRef.current?.()
   }, [view])
 
   return (
     <div
       ref={mountRef}
-      className='scene-canvas three-scene'
+      className={`scene-canvas three-scene scene-${background} ${laserEnabled ? 'laser-on' : ''}`}
       role='img'
-      aria-label='Interactive 3D model of the KUMA seven-articulation robot rig'>
+      aria-label={`Interactive 3D model of the KUMA seven-articulation robot rig${laserEnabled ? ' with the simulated laser enabled' : ''}`}>
       <div className='scene-readout space-x-4'>
         <span>LIVE 3D</span>
         <a
-          className='whitespace-nowrap text-white'
+          className='scene-credit-link whitespace-nowrap'
           href='https://sketchfab.com/3d-models/kuma-heavy-robot-r-9000s-8b77bdbe705f4e9697790fd404da49a9'
           target='_blank'
           rel='noreferrer'>
@@ -412,7 +535,7 @@ export default function RobotScene({ joints, view, activeJoint }: RobotSceneProp
               <i>
                 <b style={{ width: `${loadProgress}%` }} />
               </i>
-              <small>{loadProgress}% · 27 MB</small>
+              <small>{loadProgress}% · 4.8 MB</small>
             </>
           ) : (
             <small>Check WebGL and the model endpoint.</small>

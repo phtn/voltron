@@ -120,7 +120,7 @@ const iconPaths: Record<IconName, React.ReactNode> = {
   )
 }
 
-function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
+export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   return (
     <svg
       width={size}
